@@ -23,7 +23,7 @@ struct input_instr {
   unsigned long long ip;
 
   // branch info
-  unsigned char is_branch;j
+  unsigned char is_branch;
   unsigned char branch_taken;
 
   unsigned char destination_registers[NUM_INSTR_DESTINATIONS]; // output registers
@@ -37,6 +37,7 @@ struct input_instr {
 
 import struct
 import sys
+import lzma
 
 # Constants matching the C++ structure
 NUM_INSTR_DESTINATIONS = 2
@@ -64,9 +65,10 @@ def parse_trace_file(filename: str) -> list[tuple[int, bool]]:
         taken_flag is True if branch was taken, False otherwise
     """
     branches = []
+    is_xz = filename.endswith(".xz")
 
     try:
-        with open(filename, 'rb') as f:
+        with (lzma.open(filename, 'rb') if is_xz else open(filename, 'rb')) as f:
             while True:
                 # Read one instruction structure
                 data = f.read(INSTR_SIZE)
@@ -83,6 +85,7 @@ def parse_trace_file(filename: str) -> list[tuple[int, bool]]:
 
                 # If this is a branch instruction, add it to our list
                 if is_branch == 1:
+                    assert branch_taken == 0 or branch_taken == 1, "branch taken not 0 or 1"
                     branches.append((ip, bool(branch_taken)))
 
     except FileNotFoundError:
