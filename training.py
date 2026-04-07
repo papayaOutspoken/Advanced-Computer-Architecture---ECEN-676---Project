@@ -63,7 +63,7 @@ def training_loop(
         
         #poll the branch predictor
         predictor_input = selected_index.item()
-        predictor_output = predictor.predict_branch(predictor_input)
+        predictor_output = predictor.raw_predict_branch(predictor_input)
         
         predictor.update_predictor(predictor_input, correct_direction)
         
@@ -89,50 +89,6 @@ def training_loop(
         
     average_mse = total_loss / steps if steps > 0 else 0.0
     return average_mse
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 # import torch

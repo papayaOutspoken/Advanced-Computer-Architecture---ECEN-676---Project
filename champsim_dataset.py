@@ -1,5 +1,6 @@
 import struct
 import subprocess
+import parse_champsim_trace
 from torch.utils.data import IterableDataset
 
 class ChampSimDataset(IterableDataset):
@@ -8,10 +9,7 @@ class ChampSimDataset(IterableDataset):
         self.trace_file_path = trace_file_path
         
         # ChampSim traces start with metadata, and each instruction payload is 64-bytes.
-        # Adjust the struct.Struct format string to strictly match your trace's C-struct format.
-        # Here, `<` indicates little-endian, `Q` is an 8-byte uint64 (for PC), 
-        # `B` is a 1-byte unsigned char (for branch direction), and `55x` pads the remaining 55 bytes.
-        self.struct_format = struct.Struct('<Q B 55x')
+        self.struct_format = struct.Struct(parse_champsim_trace.INSTR_FORMAT)
         self.chunk_size = self.struct_format.size
 
     def __iter__(self):
@@ -33,7 +31,7 @@ class ChampSimDataset(IterableDataset):
                 
                 yield {
                     'pc': unpacked_data[0],
-                    'direction': unpacked_data[1]
+                    'direction': unpacked_data[2]
                 }
         finally:
             process.stdout.close()

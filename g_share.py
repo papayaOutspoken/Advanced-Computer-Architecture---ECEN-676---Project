@@ -4,13 +4,16 @@ hist_table_size = 16384
 
 
 class GShare:
-    def __init__(self, hashfn=lambda addr, hist: addr ^ hist):
+    def __init__(self, hashfn: callable[[int,int], int] = lambda addr, hist: addr ^ hist):
         self.hist_table = [2**(counter_bits-1)] * hist_table_size # weakly taken start
         self.hist_vector = 0 # Will have to manually make sure this is less than num bits set in global_hist_length
         self.hashfn = hashfn
 
     def predict_branch(self, address: int): #output will be normalized from 1 to -1
-        value = self.hist_table[self.hashfn(address, self.hist_vector) % hist_table_size]
+        return self.raw_predict_branch(self.hashfn(address, self.hist_vector))
+
+    def raw_predict_branch(self, idx: int):
+        value = self.hist_table[idx % hist_table_size]
         # Map [0, 2^n - 1] to [-1, 1]
         max_val = (2 ** counter_bits) - 1
         return (2 * value - max_val) / max_val
