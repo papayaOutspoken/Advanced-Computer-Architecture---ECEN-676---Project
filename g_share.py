@@ -1,10 +1,12 @@
+from typing import Callable
+
 global_hist_length = 14
 counter_bits = 2
 hist_table_size = 16384
 
 
 class GShare:
-    def __init__(self, hashfn: callable[[int,int], int] = lambda addr, hist: addr ^ hist):
+    def __init__(self, hashfn: Callable[[int,int], int] = lambda addr, hist: addr ^ hist):
         self.hist_table = [2**(counter_bits-1)] * hist_table_size # weakly taken start
         self.hist_vector = 0 # Will have to manually make sure this is less than num bits set in global_hist_length
         self.hashfn = hashfn
