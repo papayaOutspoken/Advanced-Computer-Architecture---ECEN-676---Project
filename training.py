@@ -44,6 +44,11 @@ def training_loop(
     model.train()
     total_loss = 0.0
     steps = 0
+    correct_predictions = 0
+    
+    metrics_file = "standard_training_metrics.csv"
+    with open(metrics_file, mode='w', newline='') as f:
+        f.write("Step,Average_MSE,Accuracy\n")
     
     for batch in dataloader:
         # Assumes batch processing is sequential to maintain GShare chronology
@@ -65,6 +70,11 @@ def training_loop(
         predictor_input = selected_index.item()
         predictor_output = predictor.raw_predict_branch(predictor_input)
         
+        # Track accuracy without altering training logic
+        pred_dir = 1 if predictor_output > 0 else 0
+        if pred_dir == correct_direction:
+            correct_predictions += 1
+            
         predictor.update_predictor(predictor_input, correct_direction)
         
         #calculate loss
@@ -81,7 +91,11 @@ def training_loop(
         steps += 1
         
         if steps % print_interval == 0:
-            print(f"Step {steps:07d} | Current Moving Average MSE: {total_loss / steps:.4f}")
+            current_avg_mse = total_loss / steps
+            current_accuracy = correct_predictions / steps
+            print(f"Step {steps:07d} | Current Moving Average MSE: {current_avg_mse:.4f} | Accuracy: {current_accuracy:.4f}")
+            with open(metrics_file, mode='a', newline='') as f:
+                f.write(f"{steps},{current_avg_mse:.4f},{current_accuracy:.4f}\n")
         
         if save_interval > 0 and save_path is not None and steps % save_interval == 0:
             torch.save(model.state_dict(), save_path)
@@ -89,27 +103,3 @@ def training_loop(
         
     average_mse = total_loss / steps if steps > 0 else 0.0
     return average_mse
-
-
-# import torch
-# import torch.nn as nn
-
-# def training_loop(
-#         predictions: torch.Tensor,
-#         correct_list: list,
-#         optimizer: torch.optim.Optimizer
-# ) -> float:
-    
-#     #I'm assuming you're giving an unformatted (discrete, 1 for taken and 0 for not taken) list
-#     #if not, this step is not needed and the correct_list input needs to be a torch.Tensor
-#     correct_tensor = torch.tensor(correct_list, dtype=torch.float32)
-#     correct_tensor = (correct_tensor * 2.0) - 1.0
-    
-#     #this, or the binary CE loss may also work
-#     loss = nn.MSELoss(predictions, correct_tensor)
-    
-#     optimizer.zero_grad()
-#     loss.backward()
-#     optimizer.step()
-    
-#     return loss.item()

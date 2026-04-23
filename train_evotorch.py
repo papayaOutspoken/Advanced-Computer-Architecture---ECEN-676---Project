@@ -6,7 +6,7 @@ import torch
 import torch.nn as nn
 from evotorch import Problem
 from evotorch.algorithms import PGPE
-from evotorch.logging import StdOutLogger
+from evotorch.logging import StdOutLogger, PandasLogger
 
 from training import HashModel, to_bit_vector
 from champsim_dataset import ChampSimDataset
@@ -98,12 +98,16 @@ def main():
 
     # This logger will print Min, Max, and Mean fitness per generation
     logger = StdOutLogger(searcher)
+    pandas_logger = PandasLogger(searcher)
 
     print("-" * 50)
     print(f"Starting Evolutionary Training for {args.generations} generations...")
     searcher.run(args.generations)
 
     print("-" * 50)
+    print("Saving EvoTorch metrics to evotorch_metrics.csv...")
+    pandas_logger.to_dataframe().to_csv("evotorch_metrics.csv")
+    
     print(f"Saving the center point of the search distribution to {args.save_path}...")
     center_solution = searcher.status["center"]
     nn.utils.vector_to_parameters(center_solution, dummy_model.parameters())
