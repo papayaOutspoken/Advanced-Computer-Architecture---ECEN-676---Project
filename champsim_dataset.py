@@ -28,6 +28,9 @@ class ChampSimDataset(IterableDataset):
                     break
                 
                 unpacked_data = self.struct_format.unpack(chunk)
+                is_branch = unpacked_data[1]
+                if not is_branch:
+                    continue
                 
                 yield {
                     'pc': unpacked_data[0],
