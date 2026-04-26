@@ -209,6 +209,10 @@ def training_loop(
 
             advantage_t = returns_t - baseline_prior
 
+            # Normalize advantages within the rollout to reduce gradient variance.
+            adv_std = advantage_t.std(unbiased=False)
+            advantage_t = (advantage_t - advantage_t.mean()) / (adv_std + 1e-8)
+
             # Update baseline EMA per rollout position.
             # For first-seen positions, initialize to the current return.
             r_detached = returns_t.detach()
