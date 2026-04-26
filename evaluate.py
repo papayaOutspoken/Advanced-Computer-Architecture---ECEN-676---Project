@@ -7,6 +7,7 @@ from torch.utils.data import DataLoader
 
 from training import HashModel, to_bit_vector
 from champsim_dataset import ChampSimDataset
+import g_share
 from g_share import GShare 
 
 def main():
@@ -28,8 +29,8 @@ def main():
     print("Initialization: Running evaluation on CPU.")
     
     PC_BITS = 64
-    HISTORY_BITS = 12
-    TABLE_SIZE = 16384 
+    HISTORY_BITS = g_share.global_hist_length
+    TABLE_SIZE = g_share.hist_table_size
 
     # Initialize Baseline
     baseline_gshare = GShare()
@@ -70,9 +71,9 @@ def main():
             masked_history = neural_gshare.hist_vector & ((1 << HISTORY_BITS) - 1)
             history_val = to_bit_vector(masked_history, HISTORY_BITS).unsqueeze(0).to(device)
             
-            probabilities = model(pc_val, history_val)
-            # Deterministic policy: pick the index with the highest probability
-            selected_index = torch.argmax(probabilities, dim=-1).item()
+            logits = model(pc_val, history_val)
+            # Deterministic policy: pick the index with the highest logit
+            selected_index = torch.argmax(logits, dim=-1).item()
             
             neural_pred_val = neural_gshare.predict_branch(selected_index)
             neural_pred_dir = 1 if neural_pred_val > 0 else 0
