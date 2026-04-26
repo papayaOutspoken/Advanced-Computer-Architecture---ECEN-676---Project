@@ -10,6 +10,7 @@ from evotorch.logging import StdOutLogger, PandasLogger
 
 from training import HashModel, to_bit_vector
 from champsim_dataset import ChampSimDataset
+import g_share
 from g_share import GShare
 
 def main():
@@ -37,8 +38,8 @@ def main():
     print("Done loading chunk. Setting up EvoTorch Problem...")
 
     PC_BITS = 64
-    HISTORY_BITS = 12
-    TABLE_SIZE = 16384
+    HISTORY_BITS = g_share.global_hist_length
+    TABLE_SIZE = g_share.hist_table_size
 
     # Create a dummy model to calculate the total number of weights/parameters
     dummy_model = HashModel(pc=PC_BITS, history=HISTORY_BITS, table_size=TABLE_SIZE)
@@ -49,7 +50,7 @@ def main():
     # Precompute PC tensors to eliminate in-loop allocations
     pc_tensors = torch.stack([to_bit_vector(pc, PC_BITS) for pc, _ in trace_chunk])
     directions = [direction for _, direction in trace_chunk]
-    # Precompute all 4096 possible history combinations
+    # Precompute all possible history combinations
     history_tensors = torch.stack([to_bit_vector(h, HISTORY_BITS) for h in range(1 << HISTORY_BITS)])
 
     # The Fitness Function evaluated by EvoTorch Ray Actors
@@ -72,9 +73,9 @@ def main():
                 masked_history = gshare.hist_vector & ((1 << HISTORY_BITS) - 1)
                 history_val = history_tensors[masked_history].unsqueeze(0)
                 
-                # Neural network outputs probabilities over all 16384 indices
-                probabilities = model(pc_val, history_val)
-                selected_index = torch.argmax(probabilities, dim=-1).item()
+                # Neural network outputs logits over all indices
+                logits = model(pc_val, history_val)
+                selected_index = torch.argmax(logits, dim=-1).item()
                 
                 # Poll the GShare internal table
                 pred_val = gshare.raw_predict_branch(selected_index)
