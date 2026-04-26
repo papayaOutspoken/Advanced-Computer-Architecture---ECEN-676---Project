@@ -86,7 +86,12 @@ def training_loop(
 
     rollout_log_probs = []
     rollout_mse = []
-    baseline_ema = None  # scalar float baseline for advantage estimation
+
+    # Per-timestep EMA baseline for advantage estimation.
+    # A single scalar baseline interacts poorly with return-to-go: it tends to
+    # create a large, mostly-deterministic advantage ramp across rollout time.
+    baseline_ema = None  # torch.Tensor[rollout_steps] on device
+    baseline_init = None  # torch.BoolTensor[rollout_steps] on device
 
     # Rolling window metrics help distinguish true training regressions from
     # non-stationarity in the trace.
@@ -187,13 +192,36 @@ def training_loop(
             returns_t = _discounted_return_to_go(costs_t, gamma)
             log_probs_t = torch.stack(rollout_log_probs)
 
+            T = int(returns_t.shape[0])
             rollout_mean_return = float(returns_t.mean().item())
-            if baseline_ema is None:
-                baseline_ema = rollout_mean_return
-            else:
-                baseline_ema = (1.0 - baseline_beta) * baseline_ema + baseline_beta * rollout_mean_return
 
-            advantage_t = returns_t - float(baseline_ema)
+            if baseline_ema is None:
+                baseline_ema = torch.zeros(rollout_steps, device=device, dtype=returns_t.dtype)
+                baseline_init = torch.zeros(rollout_steps, device=device, dtype=torch.bool)
+
+            # Use the baseline estimate before updating it (so we don't use the
+            # current return to explain itself). For unseen timesteps, fall back
+            # to the rollout mean to avoid huge initial advantages.
+            baseline_prior = baseline_ema[:T]
+            if not torch.all(baseline_init[:T]):
+                baseline_prior = baseline_prior.clone()
+                baseline_prior[~baseline_init[:T]] = rollout_mean_return
+
+            advantage_t = returns_t - baseline_prior
+
+            # Update baseline EMA per rollout position.
+            # For first-seen positions, initialize to the current return.
+            r_detached = returns_t.detach()
+            b_old = baseline_ema[:T]
+            init_mask = baseline_init[:T]
+            b_new = torch.where(
+                init_mask,
+                (1.0 - baseline_beta) * b_old + baseline_beta * r_detached,
+                r_detached,
+            )
+            baseline_ema[:T] = b_new
+            baseline_init[:T] = True
+
             pg_loss = torch.sum(log_probs_t * advantage_t)
 
             optimizer.zero_grad()
@@ -208,11 +236,19 @@ def training_loop(
             current_accuracy = correct_predictions / steps
             w_mse = (win_mse_sum / win_steps) if win_steps else 0.0
             w_acc = (win_correct / win_steps) if win_steps else 0.0
-            ema_str = f"{baseline_ema:.4f}" if baseline_ema is not None else "n/a"
+            ema_str = (
+                f"{float(baseline_ema[0].item()):.4f}..{float(baseline_ema[min(rollout_steps - 1, 8)].item()):.4f}"
+                if baseline_ema is not None else "n/a"
+            )
+            adv_mean = float(advantage_t.mean().item())
+            adv_std = float(advantage_t.std(unbiased=False).item())
+            adv_min = float(advantage_t.min().item())
+            adv_max = float(advantage_t.max().item())
             print(
                 f"Step {steps:07d} | Avg MSE: {current_avg_mse:.4f} | Acc: {current_accuracy:.4f} "
                 f"| Window({metric_window}) MSE: {w_mse:.4f} | Acc: {w_acc:.4f} "
-                f"| Baseline(EMA): {ema_str}"
+                f"| Baseline(EMA): {ema_str} | Adv mean/std/min/max: "
+                f"{adv_mean:.3f}/{adv_std:.3f}/{adv_min:.3f}/{adv_max:.3f}"
             )
             with open(metrics_file, mode='a', newline='') as f:
                 f.write(
