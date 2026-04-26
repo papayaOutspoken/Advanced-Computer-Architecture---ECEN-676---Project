@@ -44,7 +44,7 @@ def main():
     # Initialize the PyTorch Neural Hash Model.
     model = HashModel(pc=PC_BITS, history=g_share.global_hist_length, table_size=g_share.hist_table_size).to(device)
     # See <https://www.reddit.com/r/MachineLearning/comments/qq75zu/d_how_do_you_choose_an_optimizer_and_why_are/>
-    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, amsgrad=True, maximize=False)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, amsgrad=True, maximize=False, weight_decay=0)
 
     print("Initialized GShare, Neural Hash Model, and Adam Optimizer successfully.")
 
