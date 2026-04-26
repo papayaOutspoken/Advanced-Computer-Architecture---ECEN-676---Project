@@ -8,7 +8,8 @@ from torch.utils.data import DataLoader
 
 from training import HashModel, training_loop, to_bit_vector
 from champsim_dataset import ChampSimDataset
-from g_share import GShare 
+import g_share
+from g_share import GShare
 
 def main():
     parser = argparse.ArgumentParser(description="Train Neural Hash Model on ChampSim Traces")
@@ -18,7 +19,7 @@ def main():
     parser.add_argument("--print_interval", type=int, default=5000, help="How often to print MSE to standard output")
     parser.add_argument("--save_path", type=str, default="neural_hash_model.pth", help="Path to save the trained model weights")
     parser.add_argument("--save_interval", type=int, default=500000, help="How often to save a model checkpoint (in steps). Set to 0 to disable periodic saving.")
-    
+
     args = parser.parse_args()
 
     if not os.path.exists(args.trace_file):
@@ -26,8 +27,8 @@ def main():
         sys.exit(1)
 
     # Hardware Configuration
-    # We explicitly force the CPU. Because GShare requires strictly sequential processing 
-    # (batch_size=1), the PCI-e transfer overhead of moving single instructions to a GPU 
+    # We explicitly force the CPU. Because GShare requires strictly sequential processing
+    # (batch_size=1), the PCI-e transfer overhead of moving single instructions to a GPU
     # is significantly slower than executing the operations directly on the CPU.
     device = torch.device("cpu")
     print(f"Initialization: Forcing compute device -> {device} (Optimized for sequential batch_size=1)")
@@ -36,15 +37,14 @@ def main():
 
     # Architecture Constraints
     PC_BITS = 64
-    HISTORY_BITS = 12
-    TABLE_SIZE = 16384 
 
     # Initialize Architecture Components
-    gshare_predictor = GShare()
-    
-    # Initialize the PyTorch Neural Hash Model. 
-    model = HashModel(pc=PC_BITS, history=HISTORY_BITS, table_size=TABLE_SIZE).to(device)
-    optimizer = optim.Adam(model.parameters(), lr=args.learning_rate)
+    gshare_predictor = GShare(hashfn=lambda index, hist: int(index))
+
+    # Initialize the PyTorch Neural Hash Model.
+    model = HashModel(pc=PC_BITS, history=g_share.global_hist_length, table_size=g_share.hist_table_size).to(device)
+    # See <https://www.reddit.com/r/MachineLearning/comments/qq75zu/d_how_do_you_choose_an_optimizer_and_why_are/>
+    optimizer = lambda *ar, **kw: torch.optim.AdamW(*ar, **kw, amsgrad=True, lr=args.learning_rate)
 
     print("Initialized GShare, Neural Hash Model, and Adam Optimizer successfully.")
 
@@ -52,7 +52,7 @@ def main():
     print("Spawning xzcat subprocess for sequential data streaming...")
     dataset = ChampSimDataset(args.trace_file)
     dataloader = DataLoader(dataset, batch_size=1)
-    
+
     # Slice the dataloader to prevent reading the entire multi-billion instruction file during tests
     if args.max_steps != -1:
         dataloader_to_use = itertools.islice(dataloader, args.max_steps)
@@ -70,7 +70,7 @@ def main():
         optimizer=optimizer,
         dataloader=dataloader_to_use,
         pc_bits=PC_BITS,
-        hist_bits=HISTORY_BITS,
+        hist_bits=g_share.global_hist_length,
         device=device,
         print_interval=args.print_interval,
         save_path=args.save_path,
