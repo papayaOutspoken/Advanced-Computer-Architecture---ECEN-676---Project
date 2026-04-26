@@ -102,6 +102,13 @@ def training_loop(
         hist_raws = []
         directions = []
 
+        # The model observes masked global history. History evolution depends only on
+        # the ground-truth outcomes, not on the sampled index. When batching rollouts
+        # we must advance a local history register as we collect samples so each step
+        # sees the correct history.
+        hist_mask = (1 << hist_bits) - 1
+        hist_sim = predictor.hist_vector & hist_mask
+
         for _ in range(rollout_steps):
             try:
                 batch = next(dataloader_iter)
@@ -117,8 +124,14 @@ def training_loop(
                 raise TypeError(f"Unsupported batch type: {type(batch)}")
 
             pc_raws.append(pc_raw)
-            hist_raws.append(predictor.hist_vector & ((1 << hist_bits) - 1))
-            directions.append(int(correct_direction))
+            hist_raws.append(hist_sim)
+            correct_direction_i = int(correct_direction)
+            if correct_direction_i not in (0, 1):
+                raise ValueError(f"Unexpected branch direction {correct_direction_i}; expected 0/1")
+            directions.append(correct_direction_i)
+
+            # Advance local history for the next collected sample.
+            hist_sim = ((hist_sim << 1) | correct_direction_i) & hist_mask
 
         if not pc_raws:
             break
@@ -135,6 +148,16 @@ def training_loop(
 
         # Step through the environment sequentially on CPU while consuming sampled actions.
         for i in range(len(pc_raws)):
+            # Sanity check: the history value used as NN input must match the predictor's
+            # current masked history at this timestep.
+            actual_hist = predictor.hist_vector & hist_mask
+            expected_hist = hist_raws[i]
+            if actual_hist != expected_hist:
+                raise AssertionError(
+                    f"History mismatch at global_step={steps} rollout_idx={i}: "
+                    f"expected={expected_hist} actual={actual_hist} (mask={hist_mask})"
+                )
+
             predictor_input = int(selected_idx_t[i].item())
             correct_direction = directions[i]
 
