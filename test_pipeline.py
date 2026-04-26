@@ -4,9 +4,8 @@ import sys
 import itertools
 import torch
 import torch.optim as optim
-from torch.utils.data import DataLoader
 
-from training import HashModel, training_loop, to_bit_vector
+from training import HashModel, training_loop
 from champsim_dataset import ChampSimDataset
 import g_share
 from g_share import GShare
@@ -19,6 +18,7 @@ def main():
     parser.add_argument("--print_interval", type=int, default=5000, help="How often to print MSE to standard output")
     parser.add_argument("--save_path", type=str, default="neural_hash_model.pth", help="Path to save the trained model weights")
     parser.add_argument("--save_interval", type=int, default=500000, help="How often to save a model checkpoint (in steps). Set to 0 to disable periodic saving.")
+    parser.add_argument("--device", type=str, default="auto", choices=["auto", "cpu", "cuda"], help="Compute device for the neural policy network")
 
     args = parser.parse_args()
 
@@ -27,11 +27,11 @@ def main():
         sys.exit(1)
 
     # Hardware Configuration
-    # We explicitly force the CPU. Because GShare requires strictly sequential processing
-    # (batch_size=1), the PCI-e transfer overhead of moving single instructions to a GPU
-    # is significantly slower than executing the operations directly on the CPU.
-    device = torch.device("cpu")
-    print(f"Initialization: Forcing compute device -> {device} (Optimized for sequential batch_size=1)")
+    if args.device == "auto":
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    else:
+        device = torch.device(args.device)
+    print(f"Initialization: Policy network device -> {device}")
     print(f"Target Trace: {args.trace_file}")
     print(f"Maximum Steps: {'Unlimited (Entire Trace)' if args.max_steps == -1 else args.max_steps}")
 
@@ -44,20 +44,19 @@ def main():
     # Initialize the PyTorch Neural Hash Model.
     model = HashModel(pc=PC_BITS, history=g_share.global_hist_length, table_size=g_share.hist_table_size).to(device)
     # See <https://www.reddit.com/r/MachineLearning/comments/qq75zu/d_how_do_you_choose_an_optimizer_and_why_are/>
-    optimizer = lambda *ar, **kw: torch.optim.AdamW(*ar, **kw, amsgrad=True, lr=args.learning_rate)
+    optimizer = torch.optim.AdamW(model.parameters(), lr=args.learning_rate, amsgrad=True, maximize=False)
 
     print("Initialized GShare, Neural Hash Model, and Adam Optimizer successfully.")
 
     # Initialize Data Pipeline
     print("Spawning xzcat subprocess for sequential data streaming...")
     dataset = ChampSimDataset(args.trace_file)
-    dataloader = DataLoader(dataset, batch_size=1)
 
-    # Slice the dataloader to prevent reading the entire multi-billion instruction file during tests
+    # Slice the stream to prevent reading the entire multi-billion instruction file during tests
     if args.max_steps != -1:
-        dataloader_to_use = itertools.islice(dataloader, args.max_steps)
+        dataloader_to_use = itertools.islice(dataset, args.max_steps)
     else:
-        dataloader_to_use = dataloader
+        dataloader_to_use = dataset
 
     print("-" * 50)
     print("Starting Training Loop...")
