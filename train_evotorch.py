@@ -5,10 +5,11 @@ import itertools
 import torch
 import torch.nn as nn
 from evotorch import Problem
-from evotorch.algorithms import PGPE
+from evotorch.algorithms import PGPE, SNES
 from evotorch.logging import StdOutLogger, PandasLogger
+import math
 
-from training import HashModel, to_bit_vector
+from training import HashModel, to_bit_vector, _bits_to_int
 from champsim_dataset import ChampSimDataset
 import g_share
 from g_share import GShare
@@ -92,10 +93,10 @@ def main():
     # Define the problem for EvoTorch
     problem = Problem("max", evaluate_solution, solution_length=num_params, initial_bounds=(-1.0, 1.0), num_actors=args.num_workers)
 
-    print("Initializing PGPE Searcher...")
+    print("Initializing Searcher...")
     # Extract the initialized weights from our PyTorch model to serve as the search center
     center_init = nn.utils.parameters_to_vector(dummy_model.parameters()).detach()
-    searcher = PGPE(problem, popsize=args.pop_size, center_learning_rate=0.05, stdev_learning_rate=0.1, stdev_init=0.1, optimizer="clipup", center_init=center_init)
+    searcher = PGPE(problem, popsize=args.pop_size, center_learning_rate=1, stdev_learning_rate=0.2 * (3 + math.log(num_params)) / math.sqrt(num_params), stdev_init=0.1, optimizer="clipup", center_init=center_init)
 
     # This logger will print Min, Max, and Mean fitness per generation
     logger = StdOutLogger(searcher)
@@ -110,8 +111,8 @@ def main():
     pandas_logger.to_dataframe().to_csv("evotorch_metrics.csv")
     
     print(f"Saving the center point of the search distribution to {args.save_path}...")
-    center_solution = searcher.status["center"]
-    nn.utils.vector_to_parameters(center_solution, dummy_model.parameters())
+    best_solution = searcher.status["best"]
+    nn.utils.vector_to_parameters(best_solution.values, dummy_model.parameters())
     torch.save(dummy_model.state_dict(), args.save_path)
 
 if __name__ == "__main__":
